@@ -1,0 +1,232 @@
+{
+  "name": "AI Product Idea Generator — Reddit → Product Hunt",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "8f3e63e8-1049-4583-840d-40b98c156953",
+      "name": "Click to Run",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "runSync",
+        "url": "https://www.reddit.com/r/saas/top/?t=week",
+        "goal": "Extract the top 15 posts from this subreddit. For each post, identify the core problem or frustration the user is facing. Return as a JSON object: { painPoints: [{ title: string, upvotes: number, comments: number, problem: string, keywords: string }] } where 'problem' is a clear one-sentence description of the pain point, and 'keywords' is 2-3 search terms someone would use to find a solution to this problem.",
+        "options": {}
+      },
+      "id": "57244785-71a3-47e7-aa22-b18c1d6f54f2",
+      "name": "TinyFish: Reddit Pain Points",
+      "type": "n8n-nodes-tinyfish.tinyfish",
+      "typeVersion": 1,
+      "position": [
+        208,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "runSync",
+        "url": "=https://duckduckgo.com",
+        "goal": "=For each of these Reddit pain points, search Google using the URL:\nhttps://duckduckgo.com/?q=site:producthunt.com+KEYWORDS\n\n{{ JSON.stringify($json.painPoints) }}\n\nInstructions:\n 1. For EACH pain point, go to Google and search: site:producthunt.com <keywords>\n 2. Check the top 3-5 Google results pointing to producthunt.com\n 3. If a matching product exists that directly solves the pain point, add it to \"existingSolutions\"\n 4. If NO relevant producthunt.com results show up, add it to \"unsolvedProblems\"\n\nReturn ONLY valid JSON, no markdown, no backticks:\n\n{\n  \"existingSolutions\": [\n    {\n      \"redditProblem\": \"the original pain point\",\n      \"keywords\": \"keywords searched\",\n      \"productName\": \"product name from PH listing\",\n      \"productTagline\": \"tagline from the Google snippet or PH page\",\n      \"productUrl\": \"https://www.producthunt.com/posts/...\",\n      \"howItSolves\": \"1-2 sentence explanation\"\n    }\n  ],\n  \"unsolvedProblems\": [\n    {\n      \"problem\": \"the original pain point\",\n      \"keywords\": \"keywords searched\",\n      \"whyUnsolved\": \"why no matching product was found\"\n    }\n  ]\n}\n\nSearch ALL pain points. Only mark as \"existingSolutions\" if the product DIRECTLY solves the problem.\n",
+        "options": {}
+      },
+      "id": "e8d8a9dd-c572-420f-a853-e8d6091d1add",
+      "name": "TinyFish: Search Product Hunt",
+      "type": "n8n-nodes-tinyfish.tinyfish",
+      "typeVersion": 1,
+      "position": [
+        688,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rawResult = $input.first().json;                                                \n// Extract just the pain points array from the nested mess               \nconst painPoints = rawResult.result.painPoints;\n                        \n// Return only what PH Tinyfish actually needs\nreturn {                           \n  json: {\n    painPoints: painPoints.map(p => ({\n      problem: p.problem,\n      keywords: p.keywords,\n      title: p.title\n    }))\n  }\n}; "
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        0
+      ],
+      "id": "375fc795-5300-4555-b6b5-86ba00782951",
+      "name": "Gets only the pain points"
+    },
+    {
+      "parameters": {
+        "resource": "block",
+        "blockId": {
+          "__rl": true,
+          "value": "={{ $json.pageId }}",
+          "mode": "id"
+        },
+        "blockUi": {
+          "blockValues": [
+            {
+              "type": "={{ $json.type === 'heading' ? 'heading_2' : 'paragraph' }}",
+              "textContent": "={{ $json.text }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        1632,
+        16
+      ],
+      "id": "3eed2abf-2116-46fd-a04f-e856bdbfe8a4",
+      "name": "Append a block"
+    },
+    {
+      "parameters": {
+        "jsCode": "function chunkText(text, limit = 1900) {\n  const chunks = [];\n  while (text.length > 0) {\n    let end = text.lastIndexOf('\\n', limit);\n    if (end <= 0) end = limit;\n    chunks.push(text.substring(0, end));\n    text = text.substring(end).trimStart();\n  }\n  return chunks;\n}\n\n// Use .first() to avoid item pairing errors when nodes have different item counts\nconst pageId = $('Notion Create a page').first().json.id;\nconst result = $('TinyFish: Search Product Hunt').first().json.result;\n\nconst existingSolutions = result.existingSolutions ?? [];\nconst unsolvedProblems = result.unsolvedProblems ?? [];\n\n// Format existing solutions into readable text\nconst existingText = existingSolutions.map((s, i) =>\n  `${i + 1}. ${s.productName}\\n` +\n  `   Problem: ${s.redditProblem}\\n` +\n  `   Tagline: ${s.productTagline}\\n` +\n  `   How it solves: ${s.howItSolves}\\n` +\n  `   URL: ${s.productUrl}`\n).join('\\n\\n');\n\n// Format unsolved problems into readable text\nconst unsolvedText = unsolvedProblems.map((u, i) =>\n  `${i + 1}. ${u.problem}\\n` +\n  `   Keywords: ${u.keywords}\\n` +\n  `   Why unsolved: ${u.whyUnsolved}`\n).join('\\n\\n');\n\n// Build Notion blocks\nconst items = [];\n\nitems.push({ json: { pageId, text: '🟢 Existing Solutions', type: 'heading' } });\nchunkText(existingText).forEach(chunk => {\n  items.push({ json: { pageId, text: chunk, type: 'paragraph' } });\n});\n\nitems.push({ json: { pageId, text: '🔴 Unsolved Problems', type: 'heading' } });\nchunkText(unsolvedText).forEach(chunk => {\n  items.push({ json: { pageId, text: chunk, type: 'paragraph' } });\n});\n\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1408,
+        16
+      ],
+      "id": "b685bfe0-974d-433a-a109-1e732672e59d",
+      "name": "Code in JavaScript",
+      "executeOnce": false,
+      "retryOnFail": false
+    },
+    {
+      "parameters": {
+        "pageId": {
+          "__rl": true,
+          "value": "https://www.notion.so/Product-Hunt-Research-345b4d350f538051acf3d8e29f199126?source=copy_link",
+          "mode": "url"
+        },
+        "title": "=Product Hunt — {{ $now.format('yyyy-MM-dd') }}",
+        "blockUi": {
+          "blockValues": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        944,
+        160
+      ],
+      "id": "4570238a-4c60-4619-bf15-41de7aaa261e",
+      "name": "Notion Create a page"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1184,
+        16
+      ],
+      "id": "c91780f4-2774-45b8-a9dd-a9b95ac3eefb",
+      "name": "Merge"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Click to Run": {
+      "main": [
+        [
+          {
+            "node": "TinyFish: Reddit Pain Points",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TinyFish: Reddit Pain Points": {
+      "main": [
+        [
+          {
+            "node": "Gets only the pain points",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TinyFish: Search Product Hunt": {
+      "main": [
+        [
+          {
+            "node": "Notion Create a page",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gets only the pain points": {
+      "main": [
+        [
+          {
+            "node": "TinyFish: Search Product Hunt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notion Create a page": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Append a block",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "6a8152eb-4c97-448c-9c16-4b3f8ebdd1dc",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "da6272249d70560b461511acb62308f1a05f652968e2597f02f552fbe9a6889a"
+  },
+  "id": "xQIG5txBSNB10RwF",
+  "tags": []
+}
