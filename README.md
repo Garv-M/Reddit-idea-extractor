@@ -3,7 +3,7 @@
 ## AI Product Idea Generator — Reddit → Product Hunt
 
 This workflow extracts pain points from Reddit, searches for existing solutions on Product Hunt, and saves results to Notion.
-![Uploading Screenshot 2026-04-23 at 00.28.46.png…]()
+![Workflow diagram](workflow-screenshot.png)
 
 ## Prerequisites
 
